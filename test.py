@@ -3,9 +3,11 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import cnn
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
+import tqdm as tqdm
 
 import net
 from function import adaptive_instance_normalization, coral
@@ -121,6 +123,8 @@ vgg.eval()
 decoder.load_state_dict(torch.load(args.decoder))
 vgg.load_state_dict(torch.load(args.vgg))
 vgg = nn.Sequential(*list(vgg.children())[:31])
+model = cnn.CNNet()
+cnn = torch.load('cnn_classifier.pt')
 
 vgg.to(device)
 decoder.to(device)
@@ -128,34 +132,45 @@ decoder.to(device)
 content_tf = test_transform(args.content_size, args.crop)
 style_tf = test_transform(args.style_size, args.crop)
 
-for content_path in content_paths:
-    if do_interpolation:  # one content image, N style image
-        style = torch.stack([style_tf(Image.open(str(p))) for p in style_paths])
-        content = content_tf(Image.open(str(content_path))) \
-            .unsqueeze(0).expand_as(style)
-        style = style.to(device)
-        content = content.to(device)
-        with torch.no_grad():
-            output = style_transfer(vgg, decoder, content, style,
-                                    args.alpha, interpolation_weights)
-        output = output.cpu()
-        output_name = output_dir / '{:s}_interpolation{:s}'.format(
-            content_path.stem, args.save_ext)
-        save_image(output, str(output_name))
+_, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           1,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
 
-    else:  # process one content and one style
-        for style_path in style_paths:
-            content = content_tf(Image.open(str(content_path)))
-            style = style_tf(Image.open(str(style_path)))
-            if args.preserve_color:
-                style = coral(style, content)
-            style = style.to(device).unsqueeze(0)
-            content = content.to(device).unsqueeze(0)
-            with torch.no_grad():
-                output = style_transfer(vgg, decoder, content, style,
-                                        args.alpha)
-            output = output.cpu()
+_, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           1,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
 
-            output_name = output_dir / '{:s}_stylized_{:s}{:s}'.format(
-                content_path.stem, style_path.stem, args.save_ext)
-            save_image(output, str(output_name))
+mnist_iter = iter(mnist_valid_loader)
+svhn_iter = iter(svhn_valid_loader)
+
+all_count, correct_count = 0
+for i in tqdm(range(args.max_iter)):
+    mnist_img, mnist_label = next(mnist_iter)
+    svhn_img, svhn_label = next(svhn_iter)
+    with torch.no_grad():
+        output = style_transfer(vgg, decoder, svhn_img, mnist_img,
+                                args.alpha)
+        probabilities = model.forward(output).squeeze()
+#    output = output.cpu()
+
+    output_name = output_dir / '{:s}_stylized_{:s}{:s}'.format(
+        content_path.stem, style_path.stem, args.save_ext)
+
+    true_label = svhn_label
+    pred_label = probabilities.argmax()
+    if(true_label == pred_label):
+        correct_count += 1
+    all_count += 1
+    save_image(output, str(output_name))
+
+print(correct_count / all_count)
