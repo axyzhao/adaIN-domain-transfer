@@ -76,7 +76,7 @@ def get_mnist_train_valid_loader(data_dir,
                     num_workers=num_workers, pin_memory=pin_memory)
 
     valid_loader = torch.utils.data.DataLoader(valid_dataset,
-                    batch_size=8, sampler=valid_sampler,
+                    batch_size=1, sampler=valid_sampler,
                     num_workers=num_workers, pin_memory=pin_memory)
 
 
@@ -161,7 +161,7 @@ def get_mnist_train_valid_loader(data_dir,
                         num_workers=num_workers, pin_memory=pin_memory)
 
         valid_loader = torch.utils.data.DataLoader(valid_dataset,
-                        batch_size=16, sampler=valid_sampler,
+                        batch_size=1, sampler=valid_sampler,
                         num_workers=num_workers, pin_memory=pin_memory)
 
 

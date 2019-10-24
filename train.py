@@ -129,26 +129,6 @@ style_tf = train_transform()
 
 data_path = 'data'
 
-mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           args.batch_size,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-
-svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           args.batch_size,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-
-style_iter = iter(mnist_train_loader)
-content_iter = iter(svhn_train_loader)
 
 """content_iter = iter(data.DataLoader(
     content_dataset, batch_size=args.batch_size,
@@ -162,6 +142,27 @@ style_iter = iter(data.DataLoader(
 optimizer = torch.optim.Adam(network.decoder.parameters(), lr=args.lr)
 
 for i in tqdm(range(args.max_iter)):
+    if i % 6000 == 0:
+        mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           args.batch_size,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
+        svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           args.batch_size,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
+
+        style_iter = iter(mnist_train_loader)
+        content_iter = iter(svhn_train_loader)
+
     adjust_learning_rate(optimizer, iteration_count=i)
     content_images = torch.tensor(next(content_iter)[0])#.to(device)
     style_images = torch.tensor(next(style_iter)[0])#.to(device)
@@ -221,6 +222,27 @@ optimizer = optim.SGD(model.parameters(), lr=0.003, momentum=0.9)
 show_every = 100
 
 for i in tqdm(range(args.max_iter)):
+    if i % 6000 == 0:
+        mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           1,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
+        svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
+                           1,
+                           13090,
+                           valid_size=0.2,
+                           shuffle=True,
+                           show_sample=False,
+                           num_workers=1,
+                           pin_memory=True)
+
+        mnist_iter = iter(mnist_train_loader)
+        svhn_iter = iter(svhn_train_loader)
+
 #    content_tf = test_transform(args.content_size, args.crop)
 #    style_tf = test_transform(args.style_size, args.crop)
     mnist_img, mnist_label = next(mnist_iter)
