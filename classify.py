@@ -4,7 +4,6 @@ import datetime
 import matplotlib.pyplot as plt
 from torch import optim
 import numpy as np
-import resnet
 from torchvision import datasets, transforms
 from pathlib import Path
 
@@ -57,7 +56,7 @@ def content_tf(img):
 
 def save_img(img, name):
     img = transforms.ToTensor()(img)
-    plt.imsave(name, img.permute(1, 2, 0).numpy().astype('float')/255)
+    plt.imsave(name, img.permute(1, 2, 0).cpu().numpy().astype('float')/255)
 
 def shuffle_data(training_data, training_labels):
     idx = np.arange(len(training_data))
@@ -88,13 +87,16 @@ def train(model, content_data, content_labels, style_data, style_labels, batch_s
     l = min(len(content_data), len(style_data))
     content_img_batches, content_label_batches = (batch_img(content_data, batch_size=batch_size),
                                             batch(style_labels, batch_size=batch_size))
+
     style_img_batches, style_label_batches = (batch_img(style_data, batch_size=batch_size),
                                             batch(style_labels, batch_size=batch_size))
     for i in range(l // batch_size):
         content_img, content_label = (next(content_img_batches), next(content_label_batches))
+        content_img = content_img.to(device)
         style_img, style_label = (next(style_img_batches), next(style_label_batches))
-        content_label = torch.tensor(content_label).long()
-        style_label = torch.tensor(style_label).long()
+        style_img = style_img.to(device)
+        content_label = torch.tensor(content_label).long().to(device)
+        style_label = torch.tensor(style_label).long().to(device)
 
         model.optimizer.zero_grad()
        # if np.random.binomial(1, 0.5):
@@ -120,7 +122,7 @@ def train(model, content_data, content_labels, style_data, style_labels, batch_s
             save_image(style_img, str(style_name))
             
         for j in range(len(content_label)):
-            true_label = content_label.numpy()[j]
+            true_label = content_label.cpu().numpy()[j]
             pred_label = probabilities[j].argmax()
             if(true_label == pred_label):
                 correct_count += 1
@@ -137,8 +139,8 @@ def evaluate(model, data, labels):
         model.eval()
         with torch.no_grad():
             # create minibatch by unsqueezing
-            img = content_tf(img).unsqueeze(0).float()
-            label = torch.tensor(label).unsqueeze(0).long()
+            img = content_tf(img).unsqueeze(0).float().to(device)
+            label = torch.tensor(label).unsqueeze(0).long().to(device)
             # forward image through model
             probabilities = model.forward(img)
             loss_ = model.loss(probabilities, label)
@@ -147,7 +149,7 @@ def evaluate(model, data, labels):
                 print("Loss at step {} is {}".format(all_count, loss_))
             highest = probabilities.argmax(dim=1)
             for i in range(len(label)):
-                true_label = label.numpy()[i]
+                true_label = label.cpu().numpy()[i]
                 pred_label = probabilities[i].argmax()
                 if(true_label == pred_label):
                     correct_count += 1
@@ -229,6 +231,8 @@ model.optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9, weight_d
 # batch size = 32
 # random crop -- shift data to a different position
 model.loss = nn.CrossEntropyLoss()
+device = torch.device('cuda')
+model = model.to(device)
 show_every = 100
 
 style_data, style_labels = open_file(target_domain)
