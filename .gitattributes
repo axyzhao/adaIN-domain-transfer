@@ -23,3 +23,5 @@ data/PACS/photo_test_kfold.txt filter=lfs diff=lfs merge=lfs -text
 data/PACS/photo_train.hdf5 filter=lfs diff=lfs merge=lfs -text
 data/PACS/readme.txt filter=lfs diff=lfs merge=lfs -text
 data/PACS/sketch_train.hdf5 filter=lfs diff=lfs merge=lfs -text
+models/decoder.pth filter=lfs diff=lfs merge=lfs -text
+models/vgg_normalised.pth filter=lfs diff=lfs merge=lfs -text
