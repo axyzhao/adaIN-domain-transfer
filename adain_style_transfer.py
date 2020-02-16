@@ -160,7 +160,6 @@ losses = []
 
 
 num_epochs = 10
-model = torch.load('resnet34_classifier.pt')
 
 
 # In[ ]:

@@ -20,9 +20,7 @@ from function import adaptive_instance_normalization, coral
 
 train_files = glob.glob('data/PACS/*train.hdf5')
 test_files = glob.glob('data/PACS/*test.hdf5')
-target_domain = 'data/PACS/cartoon_train.hdf5'
-
-eval_losses = []
+target_domain = 'data/PACS/photo_train.hdf5'
 
 # separate batch functions for image and labels, since we need to apply a transformation to images
 def batch_img(iterable, batch_size=32):
@@ -65,20 +63,11 @@ def shuffle_data(training_data, training_labels):
     training_labels_shuffled = training_labels[idx]
     return training_data_shuffled, training_labels_shuffled
 
-def style_transfer(vgg, decoder, content, style, alpha=1.0,
-                   interpolation_weights=None):
+def style_transfer(vgg, decoder, content, style, alpha=1.0):
     assert (0.0 <= alpha <= 1.0)
     content_f = vgg(content)
     style_f = vgg(style)
-    if interpolation_weights:
-        _, C, H, W = content_f.size()
-        feat = torch.FloatTensor(1, C, H, W).zero_().to(device)
-        base_feat = adaptive_instance_normalization(content_f, style_f)
-        for i, w in enumerate(interpolation_weights):
-            feat = feat + w * base_feat[i:i + 1]
-        content_f = content_f[0:1]
-    else:
-        feat = adaptive_instance_normalization(content_f, style_f)
+    feat = adaptive_instance_normalization(content_f, style_f)
     feat = feat * alpha + content_f * (1 - alpha)
     return decoder(feat)
 
@@ -99,20 +88,17 @@ def train(model, content_data, content_labels, style_data, style_labels, batch_s
         style_label = torch.tensor(style_label).long().to(device)
 
         model.optimizer.zero_grad()
-       # if np.random.binomial(1, 0.5):
-       #     output = style_transfer(vgg, decoder, content_img, style_img, args.alpha)
-       # else:
-       #     output = content_img
-
-        output = style_transfer(vgg, decoder, content_img, style_img, args.alpha)
-
+        if np.random.binomial(1, 0.5):
+            output = style_transfer(vgg, decoder, content_img, style_img, args.alpha)
+        else:
+            output = content_img
         probabilities = model.forward(output)
         loss = model.loss(probabilities, content_label)
         loss.backward()
         model.optimizer.step()
         if all_count % show_every == 0:
             print("Time: {}".format(datetime.datetime.now()))
-            print("Loss at step {} is {}".format(i, loss / batch_size))
+            print("Loss at step {} is {}".format(i, loss))
             output_name = output_dir / 'output_{:s}{:s}'.format(str(i), '.png')
             style_name = output_dir / 'style_{:s}{:s}'.format(str(i), '.png')
             content_name = output_dir / 'content_{:s}{:s}'.format(str(i), '.png')
@@ -149,7 +135,7 @@ def evaluate(model, data, labels, batch_size=32):
             loss_ = model.loss(probabilities, label)
             if all_count % show_every == 0:
                 print("Time: {}".format(datetime.datetime.now()))
-                print("Loss at step {} is {}".format(all_count, loss_ / batch_size))
+                print("Loss at step {} is {}".format(all_count, loss_))
             highest = probabilities.argmax(dim=1)
             for i in range(len(label)):
                 true_label = label.cpu().numpy()[i]
@@ -160,7 +146,8 @@ def evaluate(model, data, labels, batch_size=32):
     print('\n')
     print("Number tested: {}".format(all_count))
     print("Model accuracy: {}".format(correct_count / all_count))
-    eval_losses.append(correct_count/all_count)
+    with open("{}_accuracies".format(args.experiment_name), 'a+') as f:
+        f.write('%s\n' % str(correct_count / all_count))
 
 parser = argparse.ArgumentParser()
 # Basic options
@@ -238,7 +225,21 @@ model = model.to(device)
 show_every = 100
 
 style_data, style_labels = open_file(target_domain)
-test_data, test_labels = open_file('data/PACS/cartoon_test.hdf5')
+test_data, test_labels = open_file('data/PACS/photo_test.hdf5')
+for i in range(1000):
+        # shuffle data
+    f = train_files[np.random.randint(0, len(train_files))]
+    if f == target_domain:
+        continue
+    content_data, content_labels = open_file(f)
+    print("Starting training on new domains...")
+    print("Transferring from {} --> {}".format(target_domain, f))
+
+    content_data, content_labels = shuffle_data(content_data, content_labels)
+    style_data, style_Labels = shuffle_data(style_data, style_labels)
+    train(model, content_data, content_labels, style_data, style_labels, batch_size=args.batch_size)
+    evaluate(model, test_data, test_labels, batch_size=args.batch_size)
+"""
 for f in train_files:
     if f == target_domain:
         continue
@@ -253,9 +254,6 @@ for f in train_files:
         style_data, style_Labels = shuffle_data(style_data, style_labels)
         train(model, content_data, content_labels, style_data, style_labels, batch_size=args.batch_size)
     evaluate(model, test_data, test_labels, batch_size=args.batch_size)
-
+"""
 evaluate(model, test_data, test_labels, batch_size=args.batch_size)
-with open("{}_accuracies".format(args.experiment_name), 'w') as f:
-    for e in eval_losses:
-        f.write('%s\n' % e)
 torch.save(model, '{}_resnet_classifier.pt'.format(args.experiment_name))
