@@ -58,11 +58,13 @@ def style_transfer(vgg, decoder, content, style, alpha=1.0,
 
 
 def train_transform(img):
+    img = img.astype('float')
+    img = Image.fromarray(img.astype('uint8'), 'RGB')
     transform_list = [
         transforms.RandomCrop(227),
         transforms.ToTensor()
     ]
-    return transforms.Compose(transform_list)(img)
+    return transforms.Compose(transform_list)(img).float()
 
 def adjust_learning_rate(optimizer, iteration_count):
     """Imitating the original implementation"""
