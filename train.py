@@ -57,12 +57,12 @@ def style_transfer(vgg, decoder, content, style, alpha=1.0,
     return decoder(feat)
 
 
-def train_transform():
+def train_transform(img):
     transform_list = [
         transforms.RandomCrop(227),
         transforms.ToTensor()
     ]
-    return transforms.Compose(transform_list)
+    return transforms.Compose(transform_list)(img)
 
 def adjust_learning_rate(optimizer, iteration_count):
     """Imitating the original implementation"""
