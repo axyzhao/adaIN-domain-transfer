@@ -1,4 +1,6 @@
 import argparse
+from tensorboardX import SummaryWriter
+import glob
 from pathlib import Path
 
 import torch
@@ -6,13 +8,12 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.utils.data as data
 from PIL import Image, ImageFile
-from tensorboardX import SummaryWriter
 from torchvision import transforms
 from tqdm import tqdm
 import numpy as np
 from torch import optim
 import os.path
-import data_loaders
+import h5py
 import cnn
 from function import adaptive_instance_normalization, coral
 
@@ -30,6 +31,13 @@ cudnn.benchmark = True
 Image.MAX_IMAGE_PIXELS = None  # Disable DecompressionBombError
 # Disable OSError: image file is truncated
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def open_file(filename):
+    with h5py.File(filename, 'r') as f:
+        # Get the data
+        data = np.array(f['images'])
+        labels = np.array(f['labels'])
+    return data, labels
 
 def style_transfer(vgg, decoder, content, style, alpha=1.0,
                    interpolation_weights=None):
@@ -51,31 +59,10 @@ def style_transfer(vgg, decoder, content, style, alpha=1.0,
 
 def train_transform():
     transform_list = [
-        transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(256),
+        transforms.RandomCrop(227),
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
-
-class FlatFolderDataset(data.Dataset):
-    def __init__(self, root, transform):
-        super(FlatFolderDataset, self).__init__()
-        self.root = root
-        self.paths = list(Path(self.root).glob('*'))
-        self.transform = transform
-
-    def __getitem__(self, index):
-        path = self.paths[index]
-        img = Image.open(str(path)).convert('RGB')
-        img = self.transform(img)
-        return img
-
-    def __len__(self):
-        return len(self.paths)
-
-    def name(self):
-        return 'FlatFolderDataset'
-
 
 def adjust_learning_rate(optimizer, iteration_count):
     """Imitating the original implementation"""
@@ -108,7 +95,7 @@ parser.add_argument('--n_threads', type=int, default=16)
 parser.add_argument('--save_model_interval', type=int, default=10000)
 args = parser.parse_args()
 
-device = torch.device('cpu')
+device = torch.device('cuda')
 save_dir = Path(args.save_dir)
 save_dir.mkdir(exist_ok=True, parents=True)
 log_dir = Path(args.log_dir)
@@ -128,140 +115,62 @@ content_tf = train_transform()
 style_tf = train_transform()
 
 data_path = 'data'
-
-
-"""content_iter = iter(data.DataLoader(
-    content_dataset, batch_size=args.batch_size,
-    sampler=InfiniteSamplerWrapper(content_dataset),
-    num_workers=args.n_threads))
-style_iter = iter(data.DataLoader(
-    style_dataset, batch_size=args.batch_size,
-    sampler=InfiniteSamplerWrapper(style_dataset),
-    num_workers=args.n_threads))
-"""
 optimizer = torch.optim.Adam(network.decoder.parameters(), lr=args.lr)
 
-for i in tqdm(range(args.max_iter)):
-    if i % 6000 == 0:
-        mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           args.batch_size,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-        svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           args.batch_size,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
+def batch_img(iterable, batch_size=32):
+    iterable = list(iterable)
+    l = len(iterable)
+    for i in range(0, l, batch_size):
+        yield torch.stack([content_tf(elem) for elem in iterable[i:min(i+batch_size, l)]])
 
-        style_iter = iter(mnist_train_loader)
-        content_iter = iter(svhn_train_loader)
+def open_file(filename):
+    with h5py.File(filename, 'r') as f:
+        # Get the data
+        data = np.array(f['images'])
+        labels = np.array(f['labels'])
+    return data, labels
 
+def train(network, content_data, style_data, batch_size=32):
+    all_count = correct_count = 0
+    l = min(len(content_data), len(style_data))
+    content_img_batches= batch_img(content_data, batch_size=batch_size)
+    style_img_batches= batch_img(style_data, batch_size=batch_size)
+
+    for i in range(l // batch_size):
+        content_img = next(content_img_batches)
+        content_img = content_img.to(device)
+        style_img = next(style_img_batches)
+        style_img = style_img.to(device)
+        loss_c, loss_s = network(content_img, style_img)
+        loss_c = args.content_weight * loss_c
+        loss_s = args.style_weight * loss_s
+        loss = loss_c + loss_s
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        writer.add_scalar('loss_content', loss_c.item(), i + 1)
+        writer.add_scalar('loss_style', loss_s.item(), i + 1)
+        if (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
+            state_dict = net.decoder.state_dict()
+            for key in state_dict.keys():
+                state_dict[key] = state_dict[key].to(torch.device('cpu'))
+            torch.save(state_dict, save_dir /
+                       'decoder_iter_{:d}.pth.tar'.format(i + 1))
+            decoder_path = os.path.join(save_dir, 'decoder_iter_{:d}.pth.tar'.format(i + 1))
+
+
+
+train_files = glob.glob('data/PACS/*train.hdf5')
+target_domain = 'data/PACS/cartoon_train.hdf5'
+style_data, _ = open_file(target_domain)
+
+for i in range(1000):
+        # shuffle data
+    f = train_files[np.random.randint(0, len(train_files))]
+    if f == target_domain:
+        continue
+    content_data, _ = open_file(f)
+    print("Starting training on new domains...")
+    print("Transferring from {} --> {}".format(target_domain, f))
     adjust_learning_rate(optimizer, iteration_count=i)
-    content_images = torch.tensor(next(content_iter)[0])#.to(device)
-    style_images = torch.tensor(next(style_iter)[0])#.to(device)
-
-    loss_c, loss_s = network(content_images, style_images)
-    loss_c = args.content_weight * loss_c
-    loss_s = args.style_weight * loss_s
-    loss = loss_c + loss_s
-
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
-    writer.add_scalar('loss_content', loss_c.item(), i + 1)
-    writer.add_scalar('loss_style', loss_s.item(), i + 1)
-
-    if (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
-        state_dict = net.decoder.state_dict()
-    #    for key in state_dict.keys():
-    #        state_dict[key] = state_dict[key].to(torch.device('cpu'))
-        torch.save(state_dict, save_dir /
-                   'decoder_iter_{:d}.pth.tar'.format(i + 1))
-        decoder_path = os.path.join(save_dir, 'decoder_iter_{:d}.pth.tar'.format(i + 1))
-
-decoder = net.decoder
-vgg = net.vgg
-
-decoder.eval()
-vgg.eval()
-
-decoder.load_state_dict(torch.load(decoder_path))
-vgg.load_state_dict(torch.load(args.vgg))
-vgg = nn.Sequential(*list(vgg.children())[:31])
-
-mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           1,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-
-svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           1,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-
-mnist_iter = iter(mnist_train_loader)
-svhn_iter = iter(svhn_train_loader)
-model = cnn.CNNet()
-optimizer = optim.SGD(model.parameters(), lr=0.003, momentum=0.9)
-show_every = 100
-
-for i in tqdm(range(args.max_iter)):
-    if i % 6000 == 0:
-        mnist_train_loader, mnist_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           1,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-        svhn_train_loader, svhn_valid_loader = data_loaders.get_mnist_train_valid_loader(data_path,
-                           1,
-                           13090,
-                           valid_size=0.2,
-                           shuffle=True,
-                           show_sample=False,
-                           num_workers=1,
-                           pin_memory=True)
-
-        mnist_iter = iter(mnist_train_loader)
-        svhn_iter = iter(svhn_train_loader)
-
-#    content_tf = test_transform(args.content_size, args.crop)
-#    style_tf = test_transform(args.style_size, args.crop)
-    mnist_img, mnist_label = next(mnist_iter)
-    svhn_img, svhn_label = next(svhn_iter)
-    optimizer.zero_grad()
-
-    if np.random.binomial(1, 0.5):
-        output = style_transfer(vgg, decoder, svhn_img, mnist_img,
-                            args.alpha)
-    else:
-        output = svhn_img
-    probabilities = model.forward(output)#.squeeze()
-    loss = model.loss(probabilities, svhn_label)
-    if i % show_every == 0:
-      #  imshow(utils.make_grid(mnist))
-        print("Time: {}".format(datetime.datetime.now()))
-        print("Loss at step {} is {}".format(i, loss))
-    loss.backward()
-    optimizer.step()
-
-torch.save(model, 'cnn_classifier.pt')
-writer.close()
+    train(network, content_data, style_data)
