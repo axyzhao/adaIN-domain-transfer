@@ -222,6 +222,7 @@ style_data, style_labels = open_file(target_domain)
 test_data, test_labels = open_file('data/PACS/photo_test.hdf5')
 for i in range(1000):
         # shuffle data
+    print("Iteration {}".format(str(i)))
     f = train_files[np.random.randint(0, len(train_files))]
     content_data, content_labels = open_file(f)
     print("Starting training on new domains...")

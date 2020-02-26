@@ -204,7 +204,6 @@ vgg.to(device)
 decoder.to(device)
 random_seed = 39
 
-# model = resnet.resnet18()
 num_output_classes = 8
 model = torch.hub.load('pytorch/vision:v0.5.0', 'resnet18', pretrained=True)
 num_ftrs = model.fc.in_features
@@ -220,6 +219,7 @@ test_data, test_labels = open_file('data/PACS/photo_test.hdf5')
 for i in range(400):
         # shuffle data
     print("Iteration {}".format(str(i)))
+    f = train_files[np.random.randint(0, len(train_files))]
     content_data, content_labels = open_file(f)
     print("Training on {}".format(f))
 
