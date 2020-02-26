@@ -21,6 +21,7 @@ from function import adaptive_instance_normalization, coral
 train_files = glob.glob('data/PACS/*train.hdf5')
 test_files = glob.glob('data/PACS/*test.hdf5')
 target_domain = 'data/PACS/photo_train.hdf5'
+train_files.remove(target_domain)
 
 # separate batch functions for image and labels, since we need to apply a transformation to images
 def batch_img(iterable, batch_size=32):
@@ -105,13 +106,10 @@ def train(model, content_data, content_labels, style_data, style_labels, batch_s
             save_image(output/255, str(output_name))
             save_image(content_img, str(content_name))
             save_image(style_img, str(style_name))
-            
-        for j in range(len(content_label)):
-            true_label = content_label.cpu().numpy()[j]
-            pred_label = probabilities[j].argmax()
-            if(true_label == pred_label):
-                correct_count += 1
-            all_count += 1
+
+        highest = probabilities.argmax(dim=1)
+        correct_count += (highest.cpu().numpy() == content_label.cpu().numpy()).sum()
+        all_count += len(highest)
 
     print("Number tested: {}".format(all_count))
     print("Model accuracy: {}".format(correct_count / all_count))
@@ -137,12 +135,8 @@ def evaluate(model, data, labels, batch_size=32):
                 print("Time: {}".format(datetime.datetime.now()))
                 print("Loss at step {} is {}".format(all_count, loss_))
             highest = probabilities.argmax(dim=1)
-            for i in range(len(label)):
-                true_label = label.cpu().numpy()[i]
-                pred_label = probabilities[i].argmax()
-                if(true_label == pred_label):
-                    correct_count += 1
-                all_count += 1
+            correct_count += (highest.cpu().numpy() == label.cpu().numpy()).sum()
+            all_count += len(highest)
     print('\n')
     print("Number tested: {}".format(all_count))
     print("Model accuracy: {}".format(correct_count / all_count))
@@ -229,8 +223,6 @@ test_data, test_labels = open_file('data/PACS/photo_test.hdf5')
 for i in range(1000):
         # shuffle data
     f = train_files[np.random.randint(0, len(train_files))]
-    if f == target_domain:
-        continue
     content_data, content_labels = open_file(f)
     print("Starting training on new domains...")
     print("Transferring from {} --> {}".format(target_domain, f))
